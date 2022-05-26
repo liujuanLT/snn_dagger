@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 import os
 from models import fc_lif_net_clock_A, fc_lif_net_clock_B
-from modelsaver import TFDaggerAdapter
+from modelsaver import TFDaggerAdapter, visual_lt
 
 class MnistModelSaver(TFDaggerAdapter):
     def __init__(self, *args, **kwargs):
@@ -67,7 +67,7 @@ class MnistModelSaver(TFDaggerAdapter):
             return None
 
         config = lt.get_default_config(hw_cfg=hardware_configs_pb2.DAGGER,graph_type=eval('graph_types_pb2.'+input_type))
-        graph = lt.import_graph(lt_graph_path, config)
+        graph = lt.import_graph(lt_graph_path, config, graph_types_pb2.LGFProtobuf)
 
         from tensorflow.examples.tutorials.mnist import input_data
         mnist = input_data.read_data_sets('MNIST_data', one_hot=True)
@@ -167,7 +167,7 @@ def test_snn_clock_mnist_A():
     acc = modelsaver.mnist_acc_test(resfile=os.path.join(model_dir_path, 'mnist_acc_test.txt'))
     print(f'acc={acc}')
     ltgraph_file = os.path.join(model_dir_path, 'snn_clock_mnist_ltgraph.pb')
-    modelsaver.convert_to_lt_graph(saved_model_dir, ltgraph_file, input_type='TFSavedModel')
+    modelsaver.convert_to_lt_graph(saved_model_dir, ltgraph_file, input_type='TFSavedModel', calib_data='mnist', calib_sample_num=500)
     embed_res_lt = modelsaver.lt_func_infererence(ltgraph_file, image_path, input_type='TFSavedModel', print_info=True)
     cls_lt = np.argmax(embed_res_lt, axis=1)[0]
     print(f'class={cls_lt}')
@@ -199,7 +199,7 @@ def test_snn_clock_mnist_B():
     acc = modelsaver.mnist_acc_test(resfile=os.path.join(model_dir_path, 'mnist_acc_test.txt'))
     print(f'acc={acc}')
     ltgraph_file = os.path.join(model_dir_path, 'snn_clock_mnist_ltgraph.pb')
-    modelsaver.convert_to_lt_graph(saved_model_dir, ltgraph_file, input_type='TFSavedModel')
+    modelsaver.convert_to_lt_graph(saved_model_dir, ltgraph_file, input_type='TFSavedModel', calib_data='mnist', calib_sample_num=500)
     embed_res_lt = modelsaver.lt_func_infererence(ltgraph_file, image_path, input_type='TFSavedModel', print_info=True)
     cls_lt = np.argmax(embed_res_lt, axis=1)[0]
     print(f'class={cls_lt}')

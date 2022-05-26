@@ -111,7 +111,7 @@ class Cifar10ModelSaver(TFDaggerAdapter):
             return None
 
         config = lt.get_default_config(hw_cfg=hardware_configs_pb2.DAGGER,graph_type=eval('graph_types_pb2.'+input_type))
-        graph = lt.import_graph(lt_graph_path, config)
+        graph = lt.import_graph(lt_graph_path, config, graph_types_pb2.LGFProtobuf)
 
         cifar10 = tf.keras.datasets.cifar10
         (x_train, y_train), (x_test, y_test) = cifar10.load_data()
@@ -173,8 +173,8 @@ class SnnClockCifar10ModelSaverA(Cifar10ModelSaver):
     def _adapt_to_dagger(self):
         if not self.restored:
             raise RuntimeError('model must been restored')
-
      
+
 def test_snn_clock_cifar10_A():
     modelsaver = SnnClockCifar10ModelSaverA((32,32,3))
     model_dir_path = 'data/snn_trained_model/snn_clock_cifar10_2022-05-20-15-53'
@@ -194,7 +194,7 @@ def test_snn_clock_cifar10_A():
     acc = modelsaver.cifar10_acc_test(resfile=os.path.join(model_dir_path, 'cifar10_acc_test.txt'))
     print(f'acc={acc}')
     ltgraph_file = os.path.join(model_dir_path, 'snn_clock_cifar10_ltgraph.pb')
-    modelsaver.convert_to_lt_graph(saved_model_dir, ltgraph_file, input_type='TFSavedModel')
+    modelsaver.convert_to_lt_graph(saved_model_dir, ltgraph_file, input_type='TFSavedModel', calib_data='cifar10', calib_sample_num=500)
     embed_res_lt = modelsaver.lt_func_infererence(ltgraph_file, image_path, input_type='TFSavedModel', print_info=True)
     cls_lt = np.argmax(embed_res_lt, axis=1)[0]
     print(f'class={cls_lt}')
