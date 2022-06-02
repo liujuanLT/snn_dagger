@@ -123,3 +123,38 @@ def fc_lif_net_clock_C(inputs, is_training, T=10, tau=2.0, reuse=None, scope='fc
             num_spikes_tensor, new_lif_state_tensor1, new_lif_state_tensor2 = fc_lif_net(inputs, lif_state1=new_lif_state_tensor1, lif_state2=new_lif_state_tensor2, tau=tau, is_training=is_training, reuse=reuse, scope=scope)
             out_spikes_counter_tensor += num_spikes_tensor
     return out_spikes_counter_tensor
+    
+def fc_lif_net_Nlayers(inputs, lif_state_list, is_training, tau, reuse=None, scope='fcLif'):   
+    nlayers = len(lif_state_list)
+    with slim.arg_scope([slim.fully_connected],
+                        weights_initializer=slim.initializers.xavier_initializer(), 
+                        weights_regularizer=None,
+                        biases_initializer = None,
+                        normalizer_fn=None):
+        with tf.variable_scope(scope, 'fcLif', [inputs], reuse=reuse):
+            with slim.arg_scope([slim.batch_norm, slim.dropout],
+                            is_training=is_training):
+                    net = inputs
+                    new_lif_state_list = []
+                    for ilayer in range(nlayers):
+                        if ilayer % 2 == 1 or ilayer == nlayers - 1:
+                            out_dimension = 10
+                        else:
+                            out_dimension = 512
+                        net = slim.fully_connected(net, out_dimension, activation_fn=None, scope='fc'+str(ilayer))
+                        net, new_lif_state = LIFNode(net, lif_state=lif_state_list[ilayer], tau=tau)
+                        new_lif_state_list.append(new_lif_state)
+            return net, new_lif_state_list
+
+def fc_lif_net_clock_A_Nlayers(inputs, is_training, T=10, tau=2.0, nlayers=2, reuse=None, scope='fcLif'):
+    for t in range(T):
+        lessthan = (tf.random_uniform(tf.shape(inputs)) < inputs)
+        encoded_inputs = tf.cast(lessthan, tf.float32, name='encodes_inputs')
+        init_lif_state_list = [None] * nlayers
+        if t == 0:
+            num_spikes_tensor, new_lif_state_list = fc_lif_net_Nlayers(encoded_inputs, lif_state_list=init_lif_state_list, tau=tau, is_training=is_training, reuse=reuse, scope=scope)
+            out_spikes_counter_tensor = num_spikes_tensor
+        else:
+            num_spikes_tensor, new_lif_state_list = fc_lif_net_Nlayers(encoded_inputs, lif_state_list=new_lif_state_list, tau=tau, is_training=is_training, reuse=reuse, scope=scope)
+            out_spikes_counter_tensor += num_spikes_tensor
+    return out_spikes_counter_tensor

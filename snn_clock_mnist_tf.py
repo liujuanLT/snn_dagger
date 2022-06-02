@@ -4,18 +4,18 @@ import tensorflow as tf
 from tensorflow.examples.tutorials.mnist import input_data
 import numpy as np
 import time
-from models import fc_lif_net_clock_A, fc_lif_net_clock_B, fc_lif_net_clock_C
+from models import fc_lif_net_clock_A, fc_lif_net_clock_B, fc_lif_net_clock_C, fc_lif_net_clock_A_Nlayers
 
 mnist = input_data.read_data_sets('MNIST_data', one_hot=True)
 
-model_type = 'C'
-T = 10
+model_type = 'A'
+T = 20
 tau = 2.0
 init_learning_rate = 1e-3
 epsilon = 1e-8 # AdamOptimizer epsilon
 class_num = 10
 batch_size = 64
-total_epochs = 1
+total_epochs = 100
 
 def train():
 
@@ -33,7 +33,8 @@ def train():
         out_spikes_counter_tensor = fc_lif_net_clock_B(batch_images, training_flag, T=T, tau=tau, reuse=tf.AUTO_REUSE)
     elif model_type == 'C':
         out_spikes_counter_tensor = fc_lif_net_clock_C(batch_images, training_flag, T=T, tau=tau, reuse=tf.AUTO_REUSE)
-
+    elif model_type == 'A_Nlayers':
+        out_spikes_counter_tensor = fc_lif_net_clock_A_Nlayers(batch_images, training_flag, T=T, tau=tau, nlayers=20, reuse=tf.AUTO_REUSE)
     cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=label, logits=out_spikes_counter_tensor))
 
     optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate, epsilon=epsilon)
@@ -61,6 +62,7 @@ def train():
 
         merged = tf.summary.merge_all()
         writer = tf.summary.FileWriter('./logs', sess.graph)
+        subdir = time.strftime('%Y-%m-%d-%H-%M', time.localtime(time.time()))
 
         global_step = 0
         epoch_learning_rate = init_learning_rate
@@ -118,10 +120,10 @@ def train():
                 t2 = time.time()
                 print('finished test, time=%f ms per batch' % ((t2-t1)*1000.0/total_batch_test))
                 exit(0)
+        
+            saver.save(sess=sess, save_path=os.path.join('data/snn_trained_model', 'snn_clock_mnist-'+model_type+'_'+subdir, 'snn_clock_mnist.ckpt'))
 
-        subdir = time.strftime('%Y-%m-%d-%H-%M', time.localtime(time.time()))
-        saver.save(sess=sess, save_path=os.path.join('data/snn_trained_model', 'snn_clock_mnist_'+subdir, 'snn_clock_mnist.ckpt'))
-
+            
 if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
     train()
