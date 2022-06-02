@@ -1,7 +1,7 @@
 import tensorflow as tf
 import numpy as np
 import os
-from models import fc_lif_net_clock_A, fc_lif_net_clock_B
+from models import fc_lif_net_clock_A, fc_lif_net_clock_B, fc_lif_net_clock_C
 from modelsaver import TFDaggerAdapter, visual_lt
 
 class MnistModelSaver(TFDaggerAdapter):
@@ -148,6 +148,35 @@ class SnnClockMnistModelSaverB(MnistModelSaver):
         if not self.restored:
             raise RuntimeError('model must been restored')
             
+
+class SnnClockMnistModelSaverC(MnistModelSaver):
+    def __init__(self, image_shape):
+        super().__init__(image_shape, 'image_batch', 'logits', 'TF')
+        self.net = fc_lif_net_clock_C
+
+
+    def address_input_output_placeholder(self):
+        self.input_placeholder = tf.placeholder(tf.float32, shape=[None, 784], name=self.input_name)
+        out_spikes_counter_tensor = self.net(self.input_placeholder, is_training=False, T=10, tau=2., reuse=tf.AUTO_REUSE)
+        self.embeddings_placeholder = tf.add(0.0, out_spikes_counter_tensor, name=self.output_name)
+
+    def preprocess_single_sample(self, image_data_or_path):
+        if isinstance(image_data_or_path, str):
+            try:
+                raw_image = tf.io.read_file(image_data_or_path, 'r') # for tf 1.15
+            except Exception as e:
+                raw_image = tf.read_file(image_data_or_path, 'r') # for tf 1.7, there is no tf.io
+            image_data = tf.image.decode_png(raw_image, channels=1)
+            # image_data = tf.expand_dims(image_data, 0)
+            image_data = tf.reshape(image_data, [1, 784])
+        else:
+            image_data = tf.reshape(image_data_or_path, [1, 784])
+        return image_data
+
+    def _adapt_to_dagger(self):
+        if not self.restored:
+            raise RuntimeError('model must been restored')
+
 def test_snn_clock_mnist_A():
     modelsaver = SnnClockMnistModelSaverA((28,28))
     model_dir_path = 'data/snn_trained_model/snn_clock_mnist_2022-05-18-00-34'
@@ -211,7 +240,40 @@ def test_snn_clock_mnist_B():
     acc_lt = modelsaver.lt_mnist_acc_test(ltgraph_file, input_type='TFSavedModel', resfile=os.path.join(model_dir_path, 'mnist_acc_test_ltgraph.txt'))
     print(f'acc={acc_lt}')
 
+      
+def test_snn_clock_mnist_C():
+    modelsaver = SnnClockMnistModelSaverC((28,28))
+    model_dir_path = 'data/snn_trained_model/snn_clock_mnist_2022-05-31-12-01'
+    ckpt_file = os.path.join(model_dir_path, 'snn_clock_mnist.ckpt')
+    saved_model_dir = os.path.join(model_dir_path, 'saved_model')
+    out_pb_file = os.path.join(model_dir_path, 'snn_clock_mnist.pb')
+    out_pb_file_adaptlt = os.path.join(model_dir_path, 'snn_clock_mnist_adaptlt.pb')
+    image_path = 'data/datasets/MNIST/imgs/test/3/30.png'
+    modelsaver.load_ckpt(ckpt_file)
+    modelsaver.save_to_saved_model(saved_model_dir, need_adapt_to_dagger=True, force_rewrite=True)
+    modelsaver.save_to_pb(out_pb_file)
+    modelsaver.save_to_pb(out_pb_file_adaptlt)
+    modelsaver.load_pb_graphdef(out_pb_file_adaptlt)
+    embed_res = modelsaver.inference(image_path, print_info=True)
+    cls = np.argmax(embed_res, axis=1)[0]
+    print(f'class={cls}')
+    acc = modelsaver.mnist_acc_test(resfile=os.path.join(model_dir_path, 'mnist_acc_test.txt'))
+    print(f'acc={acc}')
+    ltgraph_file = os.path.join(model_dir_path, 'snn_clock_mnist_ltgraph.pb')
+    modelsaver.convert_to_lt_graph(saved_model_dir, ltgraph_file, input_type='TFSavedModel', calib_data='mnist', calib_sample_num=500)
+    embed_res_lt = modelsaver.lt_func_infererence(ltgraph_file, image_path, input_type='TFSavedModel', print_info=True)
+    cls_lt = np.argmax(embed_res_lt, axis=1)[0]
+    print(f'class={cls_lt}')
+    ltgraph_json_file = os.path.join(model_dir_path, 'snn_clock_mnist_ltgraph.json')
+    visual_lt(ltgraph_file, ltgraph_json_file)
+    output_trace_path = os.path.join(model_dir_path, 'snn_clock_mnist_ltgraph.trace')
+    modelsaver.lt_perf_infererence(ltgraph_file, output_trace_path)
+    # note, it's quite time-consuming, takes about 5 hours
+    acc_lt = modelsaver.lt_mnist_acc_test(ltgraph_file, input_type='TFSavedModel', resfile=os.path.join(model_dir_path, 'mnist_acc_test_ltgraph.txt'))
+    print(f'acc={acc_lt}')
+
 if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = ''
-    test_snn_clock_mnist_A()
-    test_snn_clock_mnist_B()
+    # test_snn_clock_mnist_A()
+    # test_snn_clock_mnist_B()
+    test_snn_clock_mnist_C()

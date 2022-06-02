@@ -111,3 +111,15 @@ def fc_lif_net_clock_B(inputs, is_training, T=10, tau=2.0, reuse=None, scope='fc
             num_spikes_tensor, new_lif_state_tensor1, new_lif_state_tensor2 = fc_lif_net(all_encoded_inputs[t], lif_state1=new_lif_state_tensor1, lif_state2=new_lif_state_tensor2, tau=tau, is_training=is_training, reuse=reuse, scope=scope)
             out_spikes_counter_tensor += num_spikes_tensor
     return out_spikes_counter_tensor
+
+def fc_lif_net_clock_C(inputs, is_training, T=10, tau=2.0, reuse=None, scope='fcLif'):
+    for t in range(T):
+        # lessthan = (tf.random_uniform(tf.shape(inputs)) < inputs)
+        # encoded_inputs = tf.cast(lessthan, tf.float32, name='encodes_inputs')
+        if t == 0:
+            num_spikes_tensor, new_lif_state_tensor1, new_lif_state_tensor2 = fc_lif_net(inputs, lif_state1=None, lif_state2=None, tau=tau, is_training=is_training, reuse=reuse, scope=scope)
+            out_spikes_counter_tensor = num_spikes_tensor
+        else:
+            num_spikes_tensor, new_lif_state_tensor1, new_lif_state_tensor2 = fc_lif_net(inputs, lif_state1=new_lif_state_tensor1, lif_state2=new_lif_state_tensor2, tau=tau, is_training=is_training, reuse=reuse, scope=scope)
+            out_spikes_counter_tensor += num_spikes_tensor
+    return out_spikes_counter_tensor
