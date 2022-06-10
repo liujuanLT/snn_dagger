@@ -88,8 +88,12 @@ def net(in_spikes, in_feature, out_feature, T, t_max, v0, tau, tau_s, ret_type, 
             with slim.arg_scope([slim.batch_norm, slim.dropout],
                             is_training=is_training):
                     
-                    v_out = slim.fully_connected(in_spikes, 512, activation_fn=None, scope='fc0')
-                    v_out = slim.fully_connected(v_out, out_feature, activation_fn=None, scope='fc1') # shape=[batch_size, T, out_features]
+                    v_out = slim.fully_connected(in_spikes, 64, activation_fn=None, scope='fc0')
+                    v_out = slim.dropout(v_out, 0.5)
+                    v_out = slim.fully_connected(v_out, 32, activation_fn=None, scope='fc1')
+                    v_out = slim.dropout(v_out, 0.5)
+                    v_out = slim.fully_connected(v_out, out_feature, activation_fn=None, scope='fc2') # shape=[batch_size, T, out_features]
+                    v_out = slim.dropout(v_out, 0.5)
 
     if ret_type == 'v_max':
         v_out = tf.nn.max_pool1d(v_out, 100, 1, 'VALID', data_format='NWC', name='v_out_global_max_pool') # shape=[batch_size, 1, out_features]
@@ -165,6 +169,7 @@ def train():
 
         global_step = 0
         epoch_learning_rate = init_learning_rate
+        best_test_acc = 0.0
         for epoch in range(total_epochs):
             if epoch == (total_epochs * 0.5) or epoch == (total_epochs * 0.75):
                 epoch_learning_rate = epoch_learning_rate / 10
@@ -183,12 +188,12 @@ def train():
 
                 _, loss = sess.run([train, cost], feed_dict=train_feed_dict)
 
-                if step % 100 == 0:
-                    global_step += 100
-                    train_summary, train_accuracy = sess.run([merged, accuracy], feed_dict=train_feed_dict)
-                    # accuracy.eval(feed_dict=feed_dict)
-                    print("Step:", step, "Loss:", loss, "Training accuracy:", train_accuracy)
-                    writer.add_summary(train_summary, global_step=epoch)
+                # if step % 100 == 0:
+                #     global_step += 100
+                #     train_summary, train_accuracy = sess.run([merged, accuracy], feed_dict=train_feed_dict)
+                #     # accuracy.eval(feed_dict=feed_dict)
+                #     print("Step:", step, "Loss:", loss, "Training accuracy:", train_accuracy)
+                #     writer.add_summary(train_summary, global_step=epoch)
 
             batch_size_test = 64
             total_batch_test = int(mnist.test.num_examples / batch_size_test)
@@ -208,9 +213,13 @@ def train():
                 test_correct_sum += np.sum(np.argmax(out_spikes_counter, axis=1) == np.argmax(batch_y, axis=1))
                 test_sum += batch_x.shape[0]
             test_accuracy = test_correct_sum / test_sum
-
-            print('Epoch:', '%04d' % (epoch + 1), '/ Accuracy =', test_accuracy)
-            # writer.add_summary(test_summary, global_step=epoch)
+            if test_accuracy > best_test_acc:
+                best_test_acc = test_accuracy
+                saver.save(sess=sess, save_path=os.path.join('data/snn_trained_model', 'snn_event_mnist_'+subdir, 'snn_event_mnist_best.ckpt'))
+                print('e %04d, acc=%.4f (best)' % (epoch+1, test_accuracy)) 
+            else:
+                print('e %04d, acc=%.4f' % (epoch+1, test_accuracy))
+                # writer.add_summary(test_summary, global_step=epoch)
 
             test_inference_time = False
             if test_inference_time:
@@ -231,7 +240,7 @@ def train():
                 print('finished test, time=%f ms per batch' % ((t2-t1)*1000.0/total_batch_test))
                 exit(0)
 
-            if (epoch+1) % 10 == 0:
+            if epoch == 0 or (epoch+1) % 10 == 0:
                 saver.save(sess=sess, save_path=os.path.join('data/snn_trained_model', 'snn_event_mnist_'+subdir, 'snn_event_mnist.ckpt'))
 
 if __name__ == '__main__':
