@@ -235,8 +235,8 @@ class SnnEventMnistModelSaverA(MnistModelSaver):
         v0 = tf.constant(v0)
 
         x = tf.expand_dims(self.input_placeholder, 1, name='image_batch_unsq')
-        in_spikes = gaussian_encode(x, n, m, mu, sigma2, T) # [batch_size, n, k, m]
-        in_spikes = tf.reshape(in_spikes, [tf.shape(in_spikes)[0], k*n*m])  # [batch_size, k*n*m]
+        in_spikes = gaussian_encode(x, k, n, m, mu, sigma2, T) # [batch_size, n, k, m]
+        in_spikes = tf.reshape(in_spikes, [tf.shape(in_spikes)[0], k*n*m], name='in_spikes_reshape')  # [batch_size, k*n*m]
         self.embeddings_placeholder = net(in_spikes, k*m, class_num, T, t_max, v0, tau, tau_s, 'v_max', is_training=False)
 
 
@@ -393,13 +393,13 @@ def test_snn_clock_mnist_A_Nlayers():
 
 def test_snn_event_mnist_A():
     modelsaver = SnnEventMnistModelSaverA((28,28))
-    model_dir_path = 'data/snn_trained_model/snn_event_mnist_2022-06-10-17-51'
+    model_dir_path = 'data/snn_trained_model/snn_event_mnist_2022-06-14-12-59'
     lt_model_dir_path = os.path.join(model_dir_path, 'ltsdk'+ltsdk_version)
     ckpt_file = os.path.join(model_dir_path, 'snn_event_mnist.ckpt')
     saved_model_dir = os.path.join(model_dir_path, 'saved_model')
     out_pb_file = os.path.join(model_dir_path, 'snn_event_mnist.pb')
     out_pb_file_adaptlt = os.path.join(lt_model_dir_path, 'snn_event_mnist_adaptlt.pb')
-    image_path = 'data/snn_dagger/datasets/MNIST/imgs/test/3/30.png'
+    image_path = 'data/datasets/MNIST/imgs/test/3/30.png'
     modelsaver.load_ckpt(ckpt_file)
     modelsaver.save_to_saved_model(saved_model_dir, need_adapt_to_dagger=True, force_rewrite=True)
     modelsaver.save_to_pb(out_pb_file)
@@ -408,10 +408,11 @@ def test_snn_event_mnist_A():
     embed_res = modelsaver.inference(image_path, print_info=True)
     cls = np.argmax(embed_res, axis=1)[0]
     print(f'class={cls}')
-    acc = modelsaver.mnist_acc_test(resfile=os.path.join(model_dir_path, 'mnist_acc_test.txt'))
-    print(f'acc={acc}')
+    # acc = modelsaver.mnist_acc_test(resfile=os.path.join(model_dir_path, 'mnist_acc_test.txt'))
+    # print(f'acc={acc}')
     ltgraph_file = os.path.join(lt_model_dir_path, 'snn_event_mnist_ltgraph.pb')
     modelsaver.convert_to_lt_graph(saved_model_dir, ltgraph_file, input_type='TFSavedModel', calib_data='mnist', calib_sample_num=500)
+    exit(0)
     embed_res_lt = modelsaver.lt_func_infererence(ltgraph_file, image_path, input_type='TFSavedModel', print_info=True)
     cls_lt = np.argmax(embed_res_lt, axis=1)[0]
     print(f'class={cls_lt}')
