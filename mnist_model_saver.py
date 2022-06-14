@@ -2,6 +2,7 @@ import tensorflow as tf
 import numpy as np
 import os
 from models import fc_lif_net_clock_A, fc_lif_net_clock_B, fc_lif_net_clock_C, fc_lif_net_clock_A_Nlayers
+from models_event import init_gaussian_tuning, gaussian_encode, init_net, net
 from modelsaver import TFDaggerAdapter, visual_lt
 ltsdk_version=None
 
@@ -207,6 +208,56 @@ class SnnClockMnistModelSaverANlayer(MnistModelSaver):
         if not self.restored:
             raise RuntimeError('model must been restored')
 
+
+
+class SnnEventMnistModelSaverA(MnistModelSaver):
+    def __init__(self, image_shape):
+        super().__init__(image_shape, 'image_batch', 'logits', 'TF')
+       
+
+    def address_input_output_placeholder(self):
+        T = 100
+        m = 16
+        n = 1
+        k = 28 * 28
+        class_num = 10
+        self.input_placeholder = tf.placeholder(tf.float32, shape=[None, k], name=self.input_name)
+        # out_spikes_counter_tensor = self.net(self.input_placeholder, is_training=False, T=10, tau=2., reuse=tf.AUTO_REUSE)
+        # self.embeddings_placeholder = tf.add(0.0, out_spikes_counter_tensor, name=self.output_name)
+
+        n, m, mu, sigma2 = init_gaussian_tuning(n = n, m=m, x_min=np.zeros((1), dtype=np.float32), x_max=np.ones((1), dtype=np.float32))
+        t_max, v0, tau, tau_s = init_net()
+        # n =tf.constant(n)
+        # m = tf.constant(m)
+        mu = tf.constant(mu)
+        sigma2 = tf.constant(sigma2)
+        t_max = tf.constant(t_max)
+        v0 = tf.constant(v0)
+
+        x = tf.expand_dims(self.input_placeholder, 1, name='image_batch_unsq')
+        in_spikes = gaussian_encode(x, n, m, mu, sigma2, T) # [batch_size, n, k, m]
+        in_spikes = tf.reshape(in_spikes, [tf.shape(in_spikes)[0], k*n*m])  # [batch_size, k*n*m]
+        self.embeddings_placeholder = net(in_spikes, k*m, class_num, T, t_max, v0, tau, tau_s, 'v_max', is_training=False)
+
+
+    def preprocess_single_sample(self, image_data_or_path):
+        if isinstance(image_data_or_path, str):
+            try:
+                raw_image = tf.io.read_file(image_data_or_path, 'r') # for tf 1.15
+            except Exception as e:
+                raw_image = tf.read_file(image_data_or_path, 'r') # for tf 1.7, there is no tf.io
+            image_data = tf.image.decode_png(raw_image, channels=1)
+            # image_data = tf.expand_dims(image_data, 0)
+            image_data = tf.reshape(image_data, [1, 784])
+        else:
+            image_data = tf.reshape(image_data_or_path, [1, 784])
+        return image_data
+
+    def _adapt_to_dagger(self):
+        if not self.restored:
+            raise RuntimeError('model must been restored')
+
+
 def test_snn_clock_mnist_A():
     modelsaver = SnnClockMnistModelSaverA((28,28))
     model_dir_path = 'data/snn_trained_model/snn_clock_mnist_A_2022-05-18-00-34'
@@ -340,6 +391,39 @@ def test_snn_clock_mnist_A_Nlayers():
     print(f'acc={acc_lt}')
 
 
+def test_snn_event_mnist_A():
+    modelsaver = SnnEventMnistModelSaverA((28,28))
+    model_dir_path = 'data/snn_trained_model/snn_event_mnist_2022-06-10-17-51'
+    lt_model_dir_path = os.path.join(model_dir_path, 'ltsdk'+ltsdk_version)
+    ckpt_file = os.path.join(model_dir_path, 'snn_event_mnist.ckpt')
+    saved_model_dir = os.path.join(model_dir_path, 'saved_model')
+    out_pb_file = os.path.join(model_dir_path, 'snn_event_mnist.pb')
+    out_pb_file_adaptlt = os.path.join(lt_model_dir_path, 'snn_event_mnist_adaptlt.pb')
+    image_path = 'data/snn_dagger/datasets/MNIST/imgs/test/3/30.png'
+    modelsaver.load_ckpt(ckpt_file)
+    modelsaver.save_to_saved_model(saved_model_dir, need_adapt_to_dagger=True, force_rewrite=True)
+    modelsaver.save_to_pb(out_pb_file)
+    modelsaver.save_to_pb(out_pb_file_adaptlt)
+    modelsaver.load_pb_graphdef(out_pb_file_adaptlt)
+    embed_res = modelsaver.inference(image_path, print_info=True)
+    cls = np.argmax(embed_res, axis=1)[0]
+    print(f'class={cls}')
+    acc = modelsaver.mnist_acc_test(resfile=os.path.join(model_dir_path, 'mnist_acc_test.txt'))
+    print(f'acc={acc}')
+    ltgraph_file = os.path.join(lt_model_dir_path, 'snn_event_mnist_ltgraph.pb')
+    modelsaver.convert_to_lt_graph(saved_model_dir, ltgraph_file, input_type='TFSavedModel', calib_data='mnist', calib_sample_num=500)
+    embed_res_lt = modelsaver.lt_func_infererence(ltgraph_file, image_path, input_type='TFSavedModel', print_info=True)
+    cls_lt = np.argmax(embed_res_lt, axis=1)[0]
+    print(f'class={cls_lt}')
+    ltgraph_json_file = os.path.join(lt_model_dir_path, 'snn_event_mnist_ltgraph.json')
+    visual_lt(ltgraph_file, ltgraph_json_file)
+    output_trace_path = os.path.join(lt_model_dir_path, 'snn_event_mnist_ltgraph.trace')
+    modelsaver.lt_perf_infererence(ltgraph_file, output_trace_path)
+    # note, it's quite time-consuming, takes about 5 hours
+    acc_lt = modelsaver.lt_mnist_acc_test(ltgraph_file, input_type='TFSavedModel', resfile=os.path.join(lt_model_dir_path, 'mnist_acc_test_ltgraph.txt'))
+    print(f'acc={acc_lt}')
+
+
 if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = ''
     ltsdk_version = '0.0.1'
@@ -347,3 +431,4 @@ if __name__ == '__main__':
     test_snn_clock_mnist_B()
     test_snn_clock_mnist_C()
     test_snn_clock_mnist_A_Nlayers()
+    test_snn_event_mnist_A()
