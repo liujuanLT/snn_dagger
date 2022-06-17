@@ -5,6 +5,17 @@ from tensorflow.python.framework import graph_util
 import numpy as np
 import os
 
+def ignore_nodes_filter():
+    from lt_sdk.proto import node_filters
+    keep_nodes = node_filters.or_filter(
+        node_filters.name_starts_with_filter("reshape_pre0"),
+        node_filters.name_starts_with_filter("reshape_pre1"),
+        node_filters.name_starts_with_filter("reshape0"),
+        node_filters.name_starts_with_filter("reshape1")
+    )
+    return node_filters.not_filter(keep_nodes)
+    # return node_filters.and_filter(keep_nodes)
+
 
 class NpDataloader(object):
     def __init__(self, data, labels, batch_size, shuffle, drop_last):
@@ -228,6 +239,8 @@ class TFDaggerAdapter(ABC):
         import lt_sdk as lt
         from lt_sdk.proto import hardware_configs_pb2, graph_types_pb2
         config = lt.get_default_config(hw_cfg=hardware_configs_pb2.DAGGER,graph_type=eval('graph_types_pb2.'+input_type))
+        # config.sw_config.ignore_nodes_filter.CopyFrom(ignore_nodes_filter().as_proto())
+        # print("sw_config *** = ", config.sw_config)
         input_graph = lt.import_graph(input_model_path, config)
         if calib_data is None:
             print('no data for calibration when convert to lt graph')
@@ -343,6 +356,8 @@ class TFDaggerAdapter(ABC):
             return None
 
         config = lt.get_default_config(hw_cfg=hardware_configs_pb2.DAGGER,graph_type=eval('graph_types_pb2.'+input_type))
+        # config.sw_config.ignore_nodes_filter.CopyFrom(ignore_nodes_filter().as_proto())
+        # print("sw_config *** = ", config.sw_config)
         graph = lt.import_graph(lt_graph_path, config, graph_types_pb2.LGFProtobuf)
 
         image_data = self.preprocess_single_sample(image_data_or_path)
@@ -367,6 +382,8 @@ class TFDaggerAdapter(ABC):
         from lt_sdk.graph.transform_graph import utils as lt_utils
 
         config = lt.get_default_config(hw_cfg=hardware_configs_pb2.DAGGER,graph_type=eval('graph_types_pb2.'+input_type))
+        # config.sw_config.ignore_nodes_filter.CopyFrom(ignore_nodes_filter().as_proto())
+        # print("sw_config *** = ", config.sw_config)
         graph = lt.import_graph(lt_graph_path, config, graph_types_pb2.LGFProtobuf)
         execstat = lt.run_performance_simulation(graph, config)
         from lt_sdk.visuals import sim_result_to_trace

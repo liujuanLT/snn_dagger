@@ -6,6 +6,17 @@ from models_event import init_gaussian_tuning, gaussian_encode, init_net, net
 from modelsaver import TFDaggerAdapter, visual_lt
 ltsdk_version=None
 
+def ignore_nodes_filter():
+    from lt_sdk.proto import node_filters
+    keep_nodes = node_filters.or_filter(
+        node_filters.name_starts_with_filter("reshape_pre0"),
+        node_filters.name_starts_with_filter("reshape_pre1"),
+        node_filters.name_starts_with_filter("reshape0"),
+        node_filters.name_starts_with_filter("reshape1")
+    )
+    return node_filters.not_filter(keep_nodes)
+    # return node_filters.and_filter(keep_nodes)
+
 class MnistModelSaver(TFDaggerAdapter):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -69,6 +80,8 @@ class MnistModelSaver(TFDaggerAdapter):
             return None
 
         config = lt.get_default_config(hw_cfg=hardware_configs_pb2.DAGGER,graph_type=eval('graph_types_pb2.'+input_type))
+        # config.sw_config.ignore_nodes_filter.CopyFrom(ignore_nodes_filter().as_proto())
+        # print("sw_config *** = ", config.sw_config)
         graph = lt.import_graph(lt_graph_path, config, graph_types_pb2.LGFProtobuf)
 
         from tensorflow.examples.tutorials.mnist import input_data
@@ -393,13 +406,14 @@ def test_snn_clock_mnist_A_Nlayers():
 
 def test_snn_event_mnist_A():
     modelsaver = SnnEventMnistModelSaverA((28,28))
-    model_dir_path = 'data/snn_trained_model/snn_event_mnist_2022-06-14-12-59'
+    model_dir_path = 'data/snn_trained_model/snn_event_mnist_2022-06-17-15-11'
     lt_model_dir_path = os.path.join(model_dir_path, 'ltsdk'+ltsdk_version)
-    ckpt_file = os.path.join(model_dir_path, 'snn_event_mnist.ckpt')
+    ckpt_file = os.path.join(model_dir_path, 'snn_event_mnist_best.ckpt')
     saved_model_dir = os.path.join(model_dir_path, 'saved_model')
     out_pb_file = os.path.join(model_dir_path, 'snn_event_mnist.pb')
     out_pb_file_adaptlt = os.path.join(lt_model_dir_path, 'snn_event_mnist_adaptlt.pb')
     image_path = 'data/datasets/MNIST/imgs/test/3/30.png'
+    # image_path = 'data/datasets/MNIST/imgs/test/5/7498.png'
     modelsaver.load_ckpt(ckpt_file)
     modelsaver.save_to_saved_model(saved_model_dir, need_adapt_to_dagger=True, force_rewrite=True)
     modelsaver.save_to_pb(out_pb_file)
@@ -408,11 +422,10 @@ def test_snn_event_mnist_A():
     embed_res = modelsaver.inference(image_path, print_info=True)
     cls = np.argmax(embed_res, axis=1)[0]
     print(f'class={cls}')
-    # acc = modelsaver.mnist_acc_test(resfile=os.path.join(model_dir_path, 'mnist_acc_test.txt'))
-    # print(f'acc={acc}')
+    acc = modelsaver.mnist_acc_test(resfile=os.path.join(model_dir_path, 'mnist_acc_test.txt'))
+    print(f'acc={acc}')
     ltgraph_file = os.path.join(lt_model_dir_path, 'snn_event_mnist_ltgraph.pb')
     modelsaver.convert_to_lt_graph(saved_model_dir, ltgraph_file, input_type='TFSavedModel', calib_data='mnist', calib_sample_num=500)
-    exit(0)
     embed_res_lt = modelsaver.lt_func_infererence(ltgraph_file, image_path, input_type='TFSavedModel', print_info=True)
     cls_lt = np.argmax(embed_res_lt, axis=1)[0]
     print(f'class={cls_lt}')

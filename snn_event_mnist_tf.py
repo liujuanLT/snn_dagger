@@ -41,7 +41,7 @@ def train():
     x = tf.expand_dims(batch_images, 1, name='image_batch_unsq') # [batch_size, n, 784], n=1
     in_spikes = gaussian_encode(x, k, n, m, mu, sigma2, T) # [batch_size, n, k, m]
     in_spikes = tf.reshape(in_spikes, [tf.shape(in_spikes)[0], k*n*m], name='in_spikes_reshape')  # [batch_size, k*n*m]
-    out_spikes_counter_tensor = net(in_spikes, k*m, class_num, T, t_max, v0, tau, tau_s, 'v_max', is_training=False) # [batch_size, 10]
+    out_spikes_counter_tensor = net(in_spikes, k*m, class_num, T, t_max, v0, tau, tau_s, 'v_max', is_training=training_flag) # [batch_size, 10]
 
     cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=label, logits=out_spikes_counter_tensor))
 
