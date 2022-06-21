@@ -52,7 +52,7 @@ def gaussian_encode(x: np.array, k,  n, m, mu, sigma2, max_spike_time=50):
     x = -1 * tf.cast(y<=0.5/max_spike_time, tf.float32) # use 0.5/max_spike_time to substitude round
     x += tf.floor(max_spike_time * (1 - y)+0.5, name='spikes_round') * tf.cast(y>0.5/max_spike_time, tf.float32) # [batch_size, k, n, m]
     x = tf.transpose(x, [0,2,1,3], name='out_spikes_transpose') # shape: [batch_size, k, n, m] -> [batch_size, n, k, m]
-
+    return x
 
 def init_net(tau=15.0, tau_s=15.0 / 4, v_threshold=1.0):
         tau = np.float32(tau)
