@@ -89,11 +89,8 @@ def net_ori_convert_to_dagger_fail(in_spikes, in_feature, out_feature, T, t_max,
                             is_training=is_training):
                     
                     v_out = slim.fully_connected(in_spikes, 64, activation_fn=None, scope='fc0') # shape=[batch_size, T, 64]
-                    # v_out = slim.dropout(v_out, 0.5)
                     v_out = slim.fully_connected(v_out, 32, activation_fn=None, scope='fc1') # shape=[batch_size, T, 32]
-                    # v_out = slim.dropout(v_out, 0.5)
                     v_out = slim.fully_connected(v_out, out_feature, activation_fn=None, scope='fc2') # shape=[batch_size, T, out_features]
-                    # v_out = slim.dropout(v_out, 0.5)
 
     if ret_type == 'v_max':
         v_out = tf.nn.max_pool1d(v_out, T, 1, 'VALID', data_format='NWC', name='v_out_global_max_pool') # shape=[batch_size, 1, out_features]
@@ -101,7 +98,6 @@ def net_ori_convert_to_dagger_fail(in_spikes, in_feature, out_feature, T, t_max,
         raise NotImplementedError('not implemented')
     v_out = tf.squeeze(v_out, 1, name='logits') # shape=[batch_size, out_features]
     return v_out
-
 
 def net(in_spikes, in_feature, out_feature, T, t_max, v0, tau, tau_s, ret_type, is_training, reuse=None, scope='fcEventNet'):
     def psp_kernel(t: tf.Tensor, tau, tau_s):
@@ -145,11 +141,42 @@ def net(in_spikes, in_feature, out_feature, T, t_max, v0, tau, tau_s, ret_type, 
             with slim.arg_scope([slim.batch_norm, slim.dropout],
                             is_training=is_training): 
                     v_out = slim.fully_connected(in_spikes, 64, activation_fn=None, scope='fc0') # shape=[batch_size, T, 64]
-                    # v_out = slim.dropout(v_out, 0.5)
                     v_out = slim.fully_connected(v_out, 32, activation_fn=None, scope='fc1') # shape=[batch_size, T, 32]
-                    # v_out = slim.dropout(v_out, 0.5)
                     v_out = slim.fully_connected(v_out, out_feature, activation_fn=None, scope='fc2') # shape=[batch_size, T, out_features]
-                    # v_out = slim.dropout(v_out, 0.5)
 
     v_out = tf.reshape(v_out, [tf.shape(v_out)[0], out_feature], name='logits') # shape=[batch_size, out_features]
     return v_out
+
+def net_PureFC(in_spikes, out_feature, is_training, reuse=None, scope='fcEventNet'):
+    with slim.arg_scope([slim.fully_connected],
+                        weights_initializer=slim.initializers.xavier_initializer(), 
+                        weights_regularizer=None,
+                        biases_initializer = None,
+                        normalizer_fn=None):
+        with tf.variable_scope(scope, 'fcEventNet', [in_spikes], reuse=reuse):
+            with slim.arg_scope([slim.batch_norm, slim.dropout],
+                            is_training=is_training): 
+                    v_out = slim.fully_connected(in_spikes, 64, activation_fn=None, scope='fc0') # shape=[batch_size, 64]
+                    v_out = slim.fully_connected(v_out, 32, activation_fn=None, scope='fc1') # shape=[batch_size, 32]
+                    v_out = slim.fully_connected(v_out, out_feature, activation_fn=None, scope='fc2') # shape=[batch_size, out_features]
+        v_out = tf.reshape(v_out, [tf.shape(v_out)[0], out_feature], name='logits')
+    return v_out
+
+def fc_event_net_A(input, T, m, n, k, class_num, is_training):
+    n, m, mu, sigma2 = init_gaussian_tuning(n = n, m=m, x_min=np.zeros((1), dtype=np.float32), x_max=np.ones((1), dtype=np.float32))
+    t_max, v0, tau, tau_s = init_net()
+    
+    mu = tf.constant(mu)
+    sigma2 = tf.constant(sigma2)
+    t_max = tf.constant(t_max)
+    v0 = tf.constant(v0)
+
+    x = tf.expand_dims(input, 1, name='image_batch_unsq') # [batch_size, n, 784], n=1
+    in_spikes = gaussian_encode(x, k, n, m, mu, sigma2, T) # [batch_size, n, k, m]
+    in_spikes = tf.reshape(in_spikes, [tf.shape(in_spikes)[0], k*n*m], name='in_spikes_reshape')  # [batch_size, k*n*m]
+    out_spikes_counter_tensor = net(in_spikes, k*m, class_num, T, t_max, v0, tau, tau_s, 'v_max', is_training=is_training) # [batch_size, 10]
+    return out_spikes_counter_tensor
+
+def pure_fc_net(input, k, class_num, is_training):
+    out_spikes_counter_tensor = net_PureFC(input, class_num, is_training)
+    return out_spikes_counter_tensor

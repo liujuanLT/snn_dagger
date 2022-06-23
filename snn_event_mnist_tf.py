@@ -3,8 +3,9 @@ import tensorflow as tf
 from tensorflow.examples.tutorials.mnist import input_data
 import numpy as np
 import time
-from models_event import init_gaussian_tuning, gaussian_encode, init_net, net
+from models_event import fc_event_net_A, pure_fc_net
 
+model_type = 'fc_event_net_A' # fc_event_net_A, pure_fc_net
 mnist = input_data.read_data_sets('MNIST_data', one_hot=True)
 
 def train():
@@ -23,25 +24,16 @@ def train():
 
     batch_images = tf.placeholder(tf.float32, shape=[None, k], name='image_batch')
 
-    label = tf.placeholder(tf.float32, shape=[None, 10])
+    label = tf.placeholder(tf.float32, shape=[None, class_num])
 
     training_flag = tf.placeholder(tf.bool)
 
     learning_rate = tf.placeholder(tf.float32, name='learning_rate')
 
-    n, m, mu, sigma2 = init_gaussian_tuning(n = n, m=m, x_min=np.zeros((1), dtype=np.float32), x_max=np.ones((1), dtype=np.float32))
-    t_max, v0, tau, tau_s = init_net()
-    # n =tf.constant(n)
-    # m = tf.constant(m)
-    mu = tf.constant(mu)
-    sigma2 = tf.constant(sigma2)
-    t_max = tf.constant(t_max)
-    v0 = tf.constant(v0)
-
-    x = tf.expand_dims(batch_images, 1, name='image_batch_unsq') # [batch_size, n, 784], n=1
-    in_spikes = gaussian_encode(x, k, n, m, mu, sigma2, T) # [batch_size, n, k, m]
-    in_spikes = tf.reshape(in_spikes, [tf.shape(in_spikes)[0], k*n*m], name='in_spikes_reshape')  # [batch_size, k*n*m]
-    out_spikes_counter_tensor = net(in_spikes, k*m, class_num, T, t_max, v0, tau, tau_s, 'v_max', is_training=training_flag) # [batch_size, 10]
+    if model_type == 'fc_event_net_A':
+        out_spikes_counter_tensor = fc_event_net_A(batch_images, T, m, n, k, class_num, training_flag)
+    elif model_type == 'pure_fc_net':
+        out_spikes_counter_tensor = pure_fc_net(batch_images, k, class_num, training_flag)
 
     cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=label, logits=out_spikes_counter_tensor))
 
