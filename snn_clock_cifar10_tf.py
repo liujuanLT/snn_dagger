@@ -21,6 +21,7 @@ class_num = 10
 batch_size = 64
 total_epochs = 50
 
+test_batch_size = 128
 
 class NpDataloader(object):
     def __init__(self, data, labels, batch_size, shuffle, drop_last):
@@ -61,9 +62,10 @@ class NpDataloader(object):
         return batch_data, batch_labels
 
 def train():
+    subdir = time.strftime('%Y-%m-%d-%H-%M', time.localtime(time.time()))
 
     train_data_loader = NpDataloader(x_train, y_train, batch_size, None, True)
-    test_data_loader = NpDataloader(x_test, y_test, x_test.shape[0], None, True)
+    test_data_loader = NpDataloader(x_test, y_test, test_batch_size, None, True)
 
     batch_images = tf.placeholder(tf.float32, shape=[None, 32, 32, 3], name='image_batch')
     batch_images_flatten = tf.reshape(batch_images, [-1, 32*32*3], name='flatten_input')
@@ -131,22 +133,22 @@ def train():
                     print("Step:", step, "Loss:", loss, "Training accuracy:", train_accuracy)
                     writer.add_summary(train_summary, global_step=epoch)
 
-                for test_batch_x, test_batch_y in test_data_loader:
+                step += 1
+            
+            for test_batch_x, test_batch_y in test_data_loader:
                     test_feed_dict = {
                         batch_images: test_batch_x,
                         label: test_batch_y,
                         learning_rate: epoch_learning_rate,
                         training_flag : False
                     }
-                step += 1
-            
+
             accuracy_rates = sess.run(accuracy, feed_dict=test_feed_dict)
             print('Epoch:', '%04d' % (epoch + 1), '/ Accuracy =', accuracy_rates)
             # writer.add_summary(test_summary, global_step=epoch)
 
-        subdir = time.strftime('%Y-%m-%d-%H-%M', time.localtime(time.time()))
-        saver.save(sess=sess, save_path=os.path.join('data/snn_trained_model', 'snn_clock_cifar10_'+subdir, 'snn_clock_cifar10.ckpt'))
+            saver.save(sess=sess, save_path=os.path.join('data/snn_trained_model', 'snn_clock_cifar10_'+model_type+'_'+subdir, 'snn_clock_cifar10.ckpt'))
 
 if __name__ == '__main__':
-    os.environ['CUDA_VISIBLE_DEVICES'] = ''
+    os.environ['CUDA_VISIBLE_DEVICES'] = '3'
     train()
