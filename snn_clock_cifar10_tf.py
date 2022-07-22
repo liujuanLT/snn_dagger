@@ -13,7 +13,7 @@ y_train = np.squeeze(y_train, axis=1)
 y_test = np.squeeze(y_test, axis=1)
 
 model_type = 'A'
-T = 10
+T = 2
 tau = 2.0
 init_learning_rate = 1e-3
 epsilon = 1e-8 # AdamOptimizer epsilon
@@ -135,15 +135,20 @@ def train():
 
                 step += 1
             
+            correct_num = 0
             for test_batch_x, test_batch_y in test_data_loader:
-                    test_feed_dict = {
-                        batch_images: test_batch_x,
-                        label: test_batch_y,
-                        learning_rate: epoch_learning_rate,
-                        training_flag : False
-                    }
+                test_feed_dict = {
+                    batch_images: test_batch_x,
+                    label: test_batch_y,
+                    learning_rate: epoch_learning_rate,
+                    training_flag : False
+                }
 
-            accuracy_rates = sess.run(accuracy, feed_dict=test_feed_dict)
+                correct_prediction_val = sess.run(correct_prediction, feed_dict=test_feed_dict)
+                correct_num += np.sum(correct_prediction_val)
+            accuracy_rates = correct_num / x_test.shape[0]
+
+            # accuracy_rates = sess.run(accuracy, feed_dict=test_feed_dict)
             print('Epoch:', '%04d' % (epoch + 1), '/ Accuracy =', accuracy_rates)
             # writer.add_summary(test_summary, global_step=epoch)
 
