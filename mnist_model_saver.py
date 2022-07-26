@@ -418,7 +418,7 @@ def test_snn_clock_mnist_A_Nlayers():
 
 def test_snn_event_mnist_A():
     modelsaver = SnnEventMnistModelSaverA((28,28))
-    model_dir_path = 'data/snn_trained_model/snn_event_mnist_2022-06-23-11-01'
+    model_dir_path = 'data/snn_trained_model/snn_event_mnist_A_2022-06-23-11-01'
     lt_model_dir_path = os.path.join(model_dir_path, 'ltsdk'+ltsdk_version)
     if not os.path.exists(lt_model_dir_path):
         os.makedirs(lt_model_dir_path)
@@ -454,7 +454,7 @@ def test_snn_event_mnist_A():
 
 def test_snn_event_mnist_PureFC():
     modelsaver = SnnEventMnistModelSaverPureFC((28,28))
-    model_dir_path = 'data/snn_trained_model/snn_event_mnist_2022-06-23-11-11'
+    model_dir_path = 'data/snn_trained_model/snn_event_mnist_PurePC_2022-06-23-11-11'
     lt_model_dir_path = os.path.join(model_dir_path, 'ltsdk'+ltsdk_version)
     if not os.path.exists(lt_model_dir_path):
         os.makedirs(lt_model_dir_path)
@@ -490,10 +490,10 @@ def test_snn_event_mnist_PureFC():
 
 if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = ''
-    ltsdk_version = '0.0.1'
-    test_snn_clock_mnist_A()
-    test_snn_clock_mnist_B()
-    test_snn_clock_mnist_C()
-    test_snn_clock_mnist_A_Nlayers()
+    ltsdk_version = '0.3'
+    # test_snn_clock_mnist_A()
+    # test_snn_clock_mnist_B()
+    # test_snn_clock_mnist_C()
+    # test_snn_clock_mnist_A_Nlayers()
     test_snn_event_mnist_A()
-    test_snn_event_mnist_PureFC()
+    # test_snn_event_mnist_PureFC()
