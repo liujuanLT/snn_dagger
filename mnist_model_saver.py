@@ -1,5 +1,6 @@
 import tensorflow as tf
 import numpy as np
+import cv2
 import os
 from models import fc_lif_net_clock_A, fc_lif_net_clock_B, fc_lif_net_clock_C, fc_lif_net_clock_A_Nlayers
 from models_event import fc_event_net_A, pure_fc_net
@@ -59,13 +60,72 @@ class MnistModelSaver(TFDaggerAdapter):
         acc = correct_num / sample_num
         return acc
 
+    def mnist_acc_test_img_folder(self, dataset_path, batch_size_test=1, resfile='data/mnist_acc_test_img_folder.txt'):
+        def get_paths(dir):
+            filelist = []
+            subdirs = []
+            for root, _, files in os.walk(dir):
+                filelist += [os.path.join(root, file) for file in files]
+                subdirs += [os.path.split(root)[1] for file in files]
+            return filelist, subdirs
+        
+        if not self.restored:
+            raise RuntimeError('model must been restored')
+        config = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)
+        config.gpu_options.allow_growth = True
+        sess = tf.Session(config=config)
+
+        try:
+            # if import pb graphdef then if include import
+            input_tensor = tf.get_default_graph().get_tensor_by_name('import/' + self.input_name + ':0')
+            output_tensor = tf.get_default_graph().get_tensor_by_name('import/' + self.output_name + ':0')
+        except Exception as e:
+            # if import ckpt then include no import
+            # TODO, actually, inference from restored ckpt is not OK by now
+            input_tensor = tf.get_default_graph().get_tensor_by_name(self.input_name + ':0')
+            output_tensor = tf.get_default_graph().get_tensor_by_name(self.output_name + ':0')    
+
+        paths, subdirs = get_paths(os.path.expanduser(dataset_path))
+        gt_datas = None
+        gt_labels = None
+        npath = len(paths)
+        for ipath in range(npath):
+            img1_path = paths[ipath]
+            subdir = subdirs[ipath]
+            emb1 = self.preprocess_single_sample(img1_path)
+            if gt_datas is None:
+                gt_datas = np.zeros((npath, *emb1.shape[1:]))
+                gt_labels = np.zeros(npath)
+            gt_datas[ipath, ...] = emb1
+            gt_labels[ipath] = int(subdir)
+
+        total_batch_test = gt_labels.shape[0]
+        print('start test...')
+        correct_num = 0
+        sample_num = 0
+        fid = open(resfile, 'w')
+        for step in range(total_batch_test):
+            batch_x, batch_y = gt_datas[step, ...], gt_labels[step]
+            batch_x = np.expand_dims(batch_x, axis=0)
+            infer_res = sess.run(output_tensor, feed_dict={input_tensor: batch_x})
+            correct_num += np.sum(np.argmax(infer_res, 1) == batch_y)
+            sample_num += infer_res.shape[0]
+            if step % 20 == 0:
+                acc = correct_num / sample_num
+                print(f'acc={acc}')
+                fid.write('step = %d, acc=%f\n' % (step, acc))
+                fid.flush()
+        fid.close()
+        acc = correct_num / sample_num
+        return acc
+
 
     def lt_mnist_acc_test(self, lt_graph_path, input_type='TFGraphDef', resfile='data/lt_mnist_acc_test.txt'):
         import lt_sdk as lt
         from lt_sdk.proto import hardware_configs_pb2, graph_types_pb2
         from lt_sdk.graph.transform_graph import utils as lt_utils
 
-        def infer_process(light_graph=None, calibration_data=None, config=None):
+        def infer_process_oldsdk(light_graph=None, calibration_data=None, config=None):
             outputs = lt.run_functional_simulation(light_graph, calibration_data, config)
             for inf_out in outputs.batches:
                 for named_ten in inf_out.results:
@@ -78,6 +138,12 @@ class MnistModelSaver(TFDaggerAdapter):
                                 embed_res = sess.run(embed_res) # tensor to list
                         return embed_res
             return None
+
+        def infer_process(light_graph=None, calibration_data=None, config=None):
+            outputs = lt.run_graph(light_graph, calibration_data, config)
+            embed_res = outputs[self.output_name+':0']
+            embed_res = np.float32(embed_res) # my process
+            return embed_res
 
         config = lt.get_default_config(hw_cfg=hardware_configs_pb2.DAGGER,graph_type=eval('graph_types_pb2.'+input_type))
         # config.sw_config.ignore_nodes_filter.CopyFrom(ignore_nodes_filter().as_proto())
@@ -118,17 +184,33 @@ class SnnClockMnistModelSaverA(MnistModelSaver):
         out_spikes_counter_tensor = self.net(self.input_placeholder, is_training=False, T=10, tau=2., reuse=tf.AUTO_REUSE)
         self.embeddings_placeholder = tf.add(0.0, out_spikes_counter_tensor, name=self.output_name)
 
-    def preprocess_single_sample(self, image_data_or_path):
+    def preprocess_single_sample(self, image_data_or_path, sess=None):
+        pre_by_tf = False
+        pre_by_np = True
         if isinstance(image_data_or_path, str):
-            try:
+            if pre_by_tf:
                 raw_image = tf.io.read_file(image_data_or_path, 'r') # for tf 1.15
-            except Exception as e:
-                raw_image = tf.read_file(image_data_or_path, 'r') # for tf 1.7, there is no tf.io
-            image_data = tf.image.decode_png(raw_image, channels=1)
-            # image_data = tf.expand_dims(image_data, 0)
-            image_data = tf.reshape(image_data, [1, 784])
+                # raw_image = tf.read_file(image_data_or_path, 'r') # for tf 1.7, there is no tf.io
+                image_data = tf.image.decode_png(raw_image, channels=1)
+                # image_data = tf.expand_dims(image_data, 0)
+                image_data = tf.reshape(image_data, [1, 784])
+                image_data = image_data / 255.0
+                if sess is None:
+                    sess = tf.Session()
+                image_data = sess.run(image_data) # tensor to list
+            else:
+                image_data = cv2.imread(image_data_or_path, cv2.IMREAD_GRAYSCALE)
+                image_data = np.array(image_data, dtype=np.float32)
+                image_data = np.reshape(image_data, [1, 784])
+                image_data = image_data / 255.0
         else:
-            image_data = tf.reshape(image_data_or_path, [1, 784])
+            if pre_by_tf:
+                image_data = tf.reshape(image_data_or_path, [1, 784])
+                if sess is None:
+                    sess = tf.Session()
+                image_data = sess.run(image_data) # tensor to list
+            elif pre_by_np:
+                image_data = np.reshape(image_data_or_path, [1, 784])
         return image_data
 
     def _adapt_to_dagger(self):
@@ -146,17 +228,33 @@ class SnnClockMnistModelSaverB(MnistModelSaver):
         out_spikes_counter_tensor = self.net(self.input_placeholder, is_training=False, T=10, tau=2., reuse=tf.AUTO_REUSE)
         self.embeddings_placeholder = tf.add(0.0, out_spikes_counter_tensor, name=self.output_name)
 
-    def preprocess_single_sample(self, image_data_or_path):
+    def preprocess_single_sample(self, image_data_or_path, sess=None):
+        pre_by_tf = False
+        pre_by_np = True
         if isinstance(image_data_or_path, str):
-            try:
+            if pre_by_tf:
                 raw_image = tf.io.read_file(image_data_or_path, 'r') # for tf 1.15
-            except Exception as e:
-                raw_image = tf.read_file(image_data_or_path, 'r') # for tf 1.7, there is no tf.io
-            image_data = tf.image.decode_png(raw_image, channels=1)
-            # image_data = tf.expand_dims(image_data, 0)
-            image_data = tf.reshape(image_data, [1, 784])
+                # raw_image = tf.read_file(image_data_or_path, 'r') # for tf 1.7, there is no tf.io
+                image_data = tf.image.decode_png(raw_image, channels=1)
+                # image_data = tf.expand_dims(image_data, 0)
+                image_data = tf.reshape(image_data, [1, 784])
+                image_data = image_data / 255.0
+                if sess is None:
+                    sess = tf.Session()
+                image_data = sess.run(image_data) # tensor to list
+            else:
+                image_data = cv2.imread(image_data_or_path, cv2.IMREAD_GRAYSCALE)
+                image_data = np.array(image_data, dtype=np.float32)
+                image_data = np.reshape(image_data, [1, 784])
+                image_data = image_data / 255.0
         else:
-            image_data = tf.reshape(image_data_or_path, [1, 784])
+            if pre_by_tf:
+                image_data = tf.reshape(image_data_or_path, [1, 784])
+                if sess is None:
+                    sess = tf.Session()
+                image_data = sess.run(image_data) # tensor to list
+            elif pre_by_np:
+                image_data = np.reshape(image_data_or_path, [1, 784])
         return image_data
 
     def _adapt_to_dagger(self):
@@ -175,17 +273,33 @@ class SnnClockMnistModelSaverC(MnistModelSaver):
         out_spikes_counter_tensor = self.net(self.input_placeholder, is_training=False, T=10, tau=2., reuse=tf.AUTO_REUSE)
         self.embeddings_placeholder = tf.add(0.0, out_spikes_counter_tensor, name=self.output_name)
 
-    def preprocess_single_sample(self, image_data_or_path):
+    def preprocess_single_sample(self, image_data_or_path, sess=None):
+        pre_by_tf = False
+        pre_by_np = True
         if isinstance(image_data_or_path, str):
-            try:
+            if pre_by_tf:
                 raw_image = tf.io.read_file(image_data_or_path, 'r') # for tf 1.15
-            except Exception as e:
-                raw_image = tf.read_file(image_data_or_path, 'r') # for tf 1.7, there is no tf.io
-            image_data = tf.image.decode_png(raw_image, channels=1)
-            # image_data = tf.expand_dims(image_data, 0)
-            image_data = tf.reshape(image_data, [1, 784])
+                # raw_image = tf.read_file(image_data_or_path, 'r') # for tf 1.7, there is no tf.io
+                image_data = tf.image.decode_png(raw_image, channels=1)
+                # image_data = tf.expand_dims(image_data, 0)
+                image_data = tf.reshape(image_data, [1, 784])
+                image_data = image_data / 255.0
+                if sess is None:
+                    sess = tf.Session()
+                image_data = sess.run(image_data) # tensor to list
+            else:
+                image_data = cv2.imread(image_data_or_path, cv2.IMREAD_GRAYSCALE)
+                image_data = np.array(image_data, dtype=np.float32)
+                image_data = np.reshape(image_data, [1, 784])
+                image_data = image_data / 255.0
         else:
-            image_data = tf.reshape(image_data_or_path, [1, 784])
+            if pre_by_tf:
+                image_data = tf.reshape(image_data_or_path, [1, 784])
+                if sess is None:
+                    sess = tf.Session()
+                image_data = sess.run(image_data) # tensor to list
+            elif pre_by_np:
+                image_data = np.reshape(image_data_or_path, [1, 784])
         return image_data
 
     def _adapt_to_dagger(self):
@@ -204,17 +318,33 @@ class SnnClockMnistModelSaverANlayer(MnistModelSaver):
         out_spikes_counter_tensor = self.net(self.input_placeholder, is_training=False, T=10, tau=2., nlayers=self.nlayers, reuse=tf.AUTO_REUSE)
         self.embeddings_placeholder = tf.add(0.0, out_spikes_counter_tensor, name=self.output_name)
 
-    def preprocess_single_sample(self, image_data_or_path):
+    def preprocess_single_sample(self, image_data_or_path, sess=None):
+        pre_by_tf = False
+        pre_by_np = True
         if isinstance(image_data_or_path, str):
-            try:
+            if pre_by_tf:
                 raw_image = tf.io.read_file(image_data_or_path, 'r') # for tf 1.15
-            except Exception as e:
-                raw_image = tf.read_file(image_data_or_path, 'r') # for tf 1.7, there is no tf.io
-            image_data = tf.image.decode_png(raw_image, channels=1)
-            # image_data = tf.expand_dims(image_data, 0)
-            image_data = tf.reshape(image_data, [1, 784])
+                # raw_image = tf.read_file(image_data_or_path, 'r') # for tf 1.7, there is no tf.io
+                image_data = tf.image.decode_png(raw_image, channels=1)
+                # image_data = tf.expand_dims(image_data, 0)
+                image_data = tf.reshape(image_data, [1, 784])
+                image_data = image_data / 255.0
+                if sess is None:
+                    sess = tf.Session()
+                image_data = sess.run(image_data) # tensor to list
+            else:
+                image_data = cv2.imread(image_data_or_path, cv2.IMREAD_GRAYSCALE)
+                image_data = np.array(image_data, dtype=np.float32)
+                image_data = np.reshape(image_data, [1, 784])
+                image_data = image_data / 255.0
         else:
-            image_data = tf.reshape(image_data_or_path, [1, 784])
+            if pre_by_tf:
+                image_data = tf.reshape(image_data_or_path, [1, 784])
+                if sess is None:
+                    sess = tf.Session()
+                image_data = sess.run(image_data) # tensor to list
+            elif pre_by_np:
+                image_data = np.reshape(image_data_or_path, [1, 784])
         return image_data
 
     def _adapt_to_dagger(self):
@@ -237,17 +367,33 @@ class SnnEventMnistModelSaverA(MnistModelSaver):
         self.input_placeholder = tf.placeholder(tf.float32, shape=[None, k], name=self.input_name)
         self.embeddings_placeholder = fc_event_net_A(self.input_placeholder, T, m, n, k, class_num, False)
 
-    def preprocess_single_sample(self, image_data_or_path):
+    def preprocess_single_sample(self, image_data_or_path, sess=None):
+        pre_by_tf = False
+        pre_by_np = True
         if isinstance(image_data_or_path, str):
-            try:
+            if pre_by_tf:
                 raw_image = tf.io.read_file(image_data_or_path, 'r') # for tf 1.15
-            except Exception as e:
-                raw_image = tf.read_file(image_data_or_path, 'r') # for tf 1.7, there is no tf.io
-            image_data = tf.image.decode_png(raw_image, channels=1)
-            # image_data = tf.expand_dims(image_data, 0)
-            image_data = tf.reshape(image_data, [1, 784])
+                # raw_image = tf.read_file(image_data_or_path, 'r') # for tf 1.7, there is no tf.io
+                image_data = tf.image.decode_png(raw_image, channels=1)
+                # image_data = tf.expand_dims(image_data, 0)
+                image_data = tf.reshape(image_data, [1, 784])
+                image_data = image_data / 255.0
+                if sess is None:
+                    sess = tf.Session()
+                image_data = sess.run(image_data) # tensor to list
+            else:
+                image_data = cv2.imread(image_data_or_path, cv2.IMREAD_GRAYSCALE)
+                image_data = np.array(image_data, dtype=np.float32)
+                image_data = np.reshape(image_data, [1, 784])
+                image_data = image_data / 255.0
         else:
-            image_data = tf.reshape(image_data_or_path, [1, 784])
+            if pre_by_tf:
+                image_data = tf.reshape(image_data_or_path, [1, 784])
+                if sess is None:
+                    sess = tf.Session()
+                image_data = sess.run(image_data) # tensor to list
+            elif pre_by_np:
+                image_data = np.reshape(image_data_or_path, [1, 784])
         return image_data
 
     def _adapt_to_dagger(self):
@@ -265,17 +411,33 @@ class SnnEventMnistModelSaverPureFC(MnistModelSaver):
         self.input_placeholder = tf.placeholder(tf.float32, shape=[None, k], name=self.input_name)
         self.embeddings_placeholder = pure_fc_net(self.input_placeholder, k, class_num, False)
     
-    def preprocess_single_sample(self, image_data_or_path):
+    def preprocess_single_sample(self, image_data_or_path, sess=None):
+        pre_by_tf = False
+        pre_by_np = True
         if isinstance(image_data_or_path, str):
-            try:
+            if pre_by_tf:
                 raw_image = tf.io.read_file(image_data_or_path, 'r') # for tf 1.15
-            except Exception as e:
-                raw_image = tf.read_file(image_data_or_path, 'r') # for tf 1.7, there is no tf.io
-            image_data = tf.image.decode_png(raw_image, channels=1)
-            # image_data = tf.expand_dims(image_data, 0)
-            image_data = tf.reshape(image_data, [1, 784])
+                # raw_image = tf.read_file(image_data_or_path, 'r') # for tf 1.7, there is no tf.io
+                image_data = tf.image.decode_png(raw_image, channels=1)
+                # image_data = tf.expand_dims(image_data, 0)
+                image_data = tf.reshape(image_data, [1, 784])
+                image_data = image_data / 255.0
+                if sess is None:
+                    sess = tf.Session()
+                image_data = sess.run(image_data) # tensor to list
+            else:
+                image_data = cv2.imread(image_data_or_path, cv2.IMREAD_GRAYSCALE)
+                image_data = np.array(image_data, dtype=np.float32)
+                image_data = np.reshape(image_data, [1, 784])
+                image_data = image_data / 255.0
         else:
-            image_data = tf.reshape(image_data_or_path, [1, 784])
+            if pre_by_tf:
+                image_data = tf.reshape(image_data_or_path, [1, 784])
+                if sess is None:
+                    sess = tf.Session()
+                image_data = sess.run(image_data) # tensor to list
+            elif pre_by_np:
+                image_data = np.reshape(image_data_or_path, [1, 784])
         return image_data
 
     def _adapt_to_dagger(self):
@@ -302,6 +464,8 @@ def test_snn_clock_mnist_A():
     print(f'class={cls}')
     acc = modelsaver.mnist_acc_test(resfile=os.path.join(model_dir_path, 'mnist_acc_test.txt'))
     print(f'acc={acc}')
+    acc = modelsaver.mnist_acc_test_img_folder('data/datasets/MNIST/imgs/test', resfile=os.path.join(model_dir_path, 'mnist_acc_test_img_folder.txt'))
+    print(f'acc img folder ={acc}')
     ltgraph_file = os.path.join(lt_model_dir_path, 'snn_clock_mnist_ltgraph.pb')
     modelsaver.convert_to_lt_graph(saved_model_dir, ltgraph_file, input_type='TFSavedModel', calib_data='mnist', calib_sample_num=500)
     embed_res_lt = modelsaver.lt_func_infererence(ltgraph_file, image_path, input_type='TFSavedModel', print_info=True)
@@ -438,6 +602,8 @@ def test_snn_event_mnist_A():
     print(f'class={cls}')
     acc = modelsaver.mnist_acc_test(resfile=os.path.join(model_dir_path, 'mnist_acc_test.txt'))
     print(f'acc={acc}')
+    acc_imgfolder = modelsaver.mnist_acc_test_img_folder('data/datasets/MNIST/imgs/test', resfile=os.path.join(model_dir_path, 'mnist_acc_test_img_folder.txt'))
+    print(f'acc img folder ={acc_imgfolder}')
     ltgraph_file = os.path.join(lt_model_dir_path, 'snn_event_mnist_ltgraph.pb')
     modelsaver.convert_to_lt_graph(saved_model_dir, ltgraph_file, input_type='TFSavedModel', calib_data='mnist', calib_sample_num=500)
     embed_res_lt = modelsaver.lt_func_infererence(ltgraph_file, image_path, input_type='TFSavedModel', print_info=True)
@@ -490,7 +656,7 @@ def test_snn_event_mnist_PureFC():
 
 if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = ''
-    ltsdk_version = '0.3'
+    ltsdk_version = '2022.8.1.1642'
     # test_snn_clock_mnist_A()
     # test_snn_clock_mnist_B()
     # test_snn_clock_mnist_C()

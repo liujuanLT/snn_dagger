@@ -156,10 +156,9 @@ class TFDaggerAdapter(ABC):
             # if import ckpt then include no import
             # TODO, actually, inference from restored ckpt is not OK by now
             input_tensor = tf.get_default_graph().get_tensor_by_name(self.input_name + ':0')
-            output_tensor = tf.get_default_graph().get_tensor_by_name(self.output_name + ':0')    
+            output_tensor = tf.get_default_graph().get_tensor_by_name(self.output_name + ':0')
 
-        image_input = sess.run(image_data) # tensor to list
-        embed_res = sess.run(output_tensor, feed_dict={input_tensor: image_input})  
+        embed_res = sess.run(output_tensor, feed_dict={input_tensor: image_data})
 
         if print_info:
             print(f'image: {image_data_or_path}')
@@ -341,7 +340,7 @@ class TFDaggerAdapter(ABC):
         from lt_sdk.proto import hardware_configs_pb2, graph_types_pb2
         from lt_sdk.graph.transform_graph import utils as lt_utils
 
-        def infer_process(light_graph=None, inputs=None, config=None):
+        def infer_process_oldsdk(light_graph=None, inputs=None, config=None):
             outputs = lt.run_functional_simulation(light_graph, inputs, config)
             for inf_out in outputs.batches:
                 for named_ten in inf_out.results:
@@ -355,17 +354,18 @@ class TFDaggerAdapter(ABC):
                         return embed_res
             return None
 
+        def infer_process(light_graph=None, inputs=None, config=None):
+            outputs = lt.run_graph(light_graph, inputs, config)
+            embed_res = outputs[self.output_name+':0']
+            embed_res = np.float32(embed_res) # my process
+            return embed_res
+
         config = lt.get_default_config(hw_cfg=hardware_configs_pb2.DAGGER,graph_type=eval('graph_types_pb2.'+input_type))
         # config.sw_config.ignore_nodes_filter.CopyFrom(ignore_nodes_filter().as_proto())
         # print("sw_config *** = ", config.sw_config)
         graph = lt.import_graph(lt_graph_path, config, graph_types_pb2.LGFProtobuf)
 
         image_data = self.preprocess_single_sample(image_data_or_path)
-        try:
-            image_data = image_data.numpy()
-        except Exception:
-            with tf.Session() as sess:
-                image_data = sess.run(image_data) # tensor to list
 
         batch_size = 1
         named_tensor = lt.data.named_tensor.NamedTensorSet([self.input_name], [image_data])
