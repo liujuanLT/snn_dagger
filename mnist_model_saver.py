@@ -174,6 +174,82 @@ class MnistModelSaver(TFDaggerAdapter):
         acc = correct_num / sample_num
         return acc
 
+
+    def lt_mnist_acc_test_img_folder(self, lt_graph_path, dataset_path, input_type='TFGraphDef', resfile='data/lt_mnist_acc_test.txt'):
+        import lt_sdk as lt
+        from lt_sdk.proto import hardware_configs_pb2, graph_types_pb2
+        from lt_sdk.graph.transform_graph import utils as lt_utils
+
+        def get_paths(dir):
+            filelist = []
+            subdirs = []
+            for root, _, files in os.walk(dir):
+                filelist += [os.path.join(root, file) for file in files]
+                subdirs += [os.path.split(root)[1] for file in files]
+            return filelist, subdirs
+        
+        def infer_process_oldsdk(light_graph=None, calibration_data=None, config=None):
+            outputs = lt.run_functional_simulation(light_graph, calibration_data, config)
+            for inf_out in outputs.batches:
+                for named_ten in inf_out.results:
+                    if named_ten.edge_info.name.startswith(self.output_name):   #输出节点名0
+                        embed_res = tf.convert_to_tensor(lt_utils.tensor_pb_to_array(named_ten.data,np.float32))
+                        try:
+                            embed_res = embed_res.numpy()
+                        except Exception:
+                            with tf.Session() as sess:
+                                embed_res = sess.run(embed_res) # tensor to list
+                        return embed_res
+            return None
+
+        def infer_process(light_graph=None, calibration_data=None, config=None):
+            outputs = lt.run_graph(light_graph, calibration_data, config)
+            embed_res = outputs[self.output_name+':0']
+            embed_res = np.float32(embed_res) # my process
+            return embed_res
+
+        config = lt.get_default_config(hw_cfg=hardware_configs_pb2.DAGGER,graph_type=eval('graph_types_pb2.'+input_type))
+        # config.sw_config.ignore_nodes_filter.CopyFrom(ignore_nodes_filter().as_proto())
+        # print("sw_config *** = ", config.sw_config)
+        graph = lt.import_graph(lt_graph_path, config, graph_types_pb2.LGFProtobuf)
+
+        paths, subdirs = get_paths(os.path.expanduser(dataset_path))
+        gt_datas = None
+        gt_labels = None
+        npath = len(paths)
+        for ipath in range(npath):
+            img1_path = paths[ipath]
+            subdir = subdirs[ipath]
+            emb1 = self.preprocess_single_sample(img1_path)
+            if gt_datas is None:
+                gt_datas = np.zeros((npath, *emb1.shape[1:]))
+                gt_labels = np.zeros(npath)
+            gt_datas[ipath, ...] = emb1
+            gt_labels[ipath] = int(subdir)
+
+        batch_size_test=1 # do not change
+        total_batch_test = int(gt_labels.shape[0] / batch_size_test )
+        correct_num = 0
+        sample_num = 0
+        fid = open(resfile, 'w')
+        for step in range(total_batch_test):
+            batch_x, batch_y = gt_datas[step, ...], gt_labels[step]
+            batch_x = np.expand_dims(batch_x, axis=0)
+            named_tensor = lt.data.named_tensor.NamedTensorSet([self.input_name], [batch_x])
+            batch_input = lt.data.batch.batch_inputs(named_tensor, batch_size_test)
+            infer_res = infer_process(graph, batch_input, config)
+            correct_num += np.sum(np.argmax(infer_res, 1) == batch_y)
+            sample_num += infer_res.shape[0]
+            if step % 20 == 0:
+                acc = correct_num / sample_num
+                print(f'acc={acc}')
+                fid.write('step = %d, acc=%f\n' % (step, acc))
+                fid.flush()
+
+        fid.close()
+        acc = correct_num / sample_num
+        return acc
+
 class SnnClockMnistModelSaverA(MnistModelSaver):
     def __init__(self, image_shape):
         super().__init__(image_shape, 'image_batch', 'logits', 'TF')
@@ -477,7 +553,9 @@ def test_snn_clock_mnist_A():
     modelsaver.lt_perf_infererence(ltgraph_file, output_trace_path)
     # note, it's quite time-consuming, takes about 5 hours
     acc_lt = modelsaver.lt_mnist_acc_test(ltgraph_file, input_type='TFSavedModel', resfile=os.path.join(lt_model_dir_path, 'mnist_acc_test_ltgraph.txt'))
-    print(f'acc={acc_lt}')
+    print(f'lt acc={acc_lt}')
+    acc_lt_imgfolder = modelsaver.lt_mnist_acc_test_img_folder(ltgraph_file, 'data/datasets/MNIST/imgs/test', input_type='TFSavedModel', resfile=os.path.join(lt_model_dir_path, 'mnist_acc_test_ltgraph_img_folder.txt'))
+    print(f'lt acc imgfolder={acc_lt_imgfolder}')
 
             
 def test_snn_clock_mnist_B():
@@ -615,7 +693,9 @@ def test_snn_event_mnist_A():
     modelsaver.lt_perf_infererence(ltgraph_file, output_trace_path)
     # note, it's quite time-consuming, takes about 5 hours
     acc_lt = modelsaver.lt_mnist_acc_test(ltgraph_file, input_type='TFSavedModel', resfile=os.path.join(lt_model_dir_path, 'mnist_acc_test_ltgraph.txt'))
-    print(f'acc={acc_lt}')
+    print(f'lt acc={acc_lt}')
+    acc_lt_imgfolder = modelsaver.lt_mnist_acc_test_img_folder(ltgraph_file, 'data/datasets/MNIST/imgs/test', input_type='TFSavedModel', resfile=os.path.join(lt_model_dir_path, 'mnist_acc_test_ltgraph_img_folder.txt'))
+    print(f'lt acc img folder={acc_lt_imgfolder}')
 
 
 def test_snn_event_mnist_PureFC():
