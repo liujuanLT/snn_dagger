@@ -114,8 +114,10 @@ def net(in_spikes, in_feature, out_feature, T, t_max, v0, tau, tau_s, ret_type, 
     t = np.reshape(t, [1,1,t.shape[0]]) # [1,1,T]
     t = tf.tile(t, [tf.shape(in_spikes)[0], in_feature, 1]) # shape=[batch_size, in_features, T]
     in_spikes = tf.tile(tf.expand_dims(in_spikes, -1), [1,1,T], 'tile0') # shape=[batch_size, in_features, T]
-    # in_spikes = v0 * psp_kernel(t - in_spikes, tau, tau_s) * tf.cast(in_spikes >= 0, tf.float32) # shape=[batch_size, in_features, T]
-    if True:
+    expand_tau = False # for dagger SDK inference, ture and false get same result
+    if not expand_tau:
+        in_spikes = v0 * psp_kernel(t - in_spikes, tau, tau_s) * tf.cast(in_spikes >= 0, tf.float32) # shape=[batch_size, in_features, T]
+    else:
         tau = tf.expand_dims(tau, -1)
         tau = tf.expand_dims(tau, -1)
         tau = tf.expand_dims(tau, -1)
@@ -124,8 +126,8 @@ def net(in_spikes, in_feature, out_feature, T, t_max, v0, tau, tau_s, ret_type, 
         tau_s = tf.expand_dims(tau_s, -1)
         tau_s = tf.expand_dims(tau_s, -1)
         tau_s = tf.tile(tau_s, [tf.shape(in_spikes)[0], in_feature, T])
-        tmp = in_spikes - t
-        v_out = ( tf.exp(tf.div(tmp, tau) ) - tf.exp(tf.div(tmp, tau_s)) ) * tf.cast(tmp >= 0, tf.float32) * tf.cast(in_spikes >= 0, tf.float32)  
+        tmp = t - in_spikes
+        in_spikes = v0 * ( tf.exp(- tf.div(tmp, tau) ) - tf.exp(- tf.div(tmp, tau_s)) ) * tf.cast(tmp >= 0, tf.float32) * tf.cast(in_spikes >= 0, tf.float32)  
     in_spikes = tf.transpose(in_spikes, [0, 2, 1], name='trans0') # shape=[batch_size, T, in_features]
     if ret_type == 'v_max':
         in_spikes = tf.nn.max_pool1d(in_spikes, T, 1, 'VALID', data_format='NWC', name='v_out_global_max_pool') # shape=[batch_size, 1, in_features]
@@ -140,9 +142,10 @@ def net(in_spikes, in_feature, out_feature, T, t_max, v0, tau, tau_s, ret_type, 
         with tf.variable_scope(scope, 'fcEventNet', [in_spikes], reuse=reuse):
             with slim.arg_scope([slim.batch_norm, slim.dropout],
                             is_training=is_training): 
-                    v_out = slim.fully_connected(in_spikes, 64, activation_fn=None, scope='fc0') # shape=[batch_size, T, 64]
-                    v_out = slim.fully_connected(v_out, 32, activation_fn=None, scope='fc1') # shape=[batch_size, T, 32]
-                    v_out = slim.fully_connected(v_out, out_feature, activation_fn=None, scope='fc2') # shape=[batch_size, T, out_features]
+                    # v_out = slim.fully_connected(in_spikes, 64, activation_fn=None, scope='fc0') # shape=[batch_size, T, 64]
+                    # v_out = slim.fully_connected(v_out, 32, activation_fn=None, scope='fc1') # shape=[batch_size, T, 32]
+                    # v_out = slim.fully_connected(v_out, out_feature, activation_fn=None, scope='fc2') # shape=[batch_size, T, out_features]
+                    v_out = slim.fully_connected(in_spikes, out_feature, activation_fn=None, scope='fc0') # shape=[batch_size, T, 64]
 
     v_out = tf.reshape(v_out, [tf.shape(v_out)[0], out_feature], name='logits') # shape=[batch_size, out_features]
     return v_out

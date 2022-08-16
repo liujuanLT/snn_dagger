@@ -53,7 +53,7 @@ class MnistModelSaver(TFDaggerAdapter):
             sample_num += infer_res.shape[0]
             if step % 20 == 0:
                 acc = correct_num / sample_num
-                print(f'acc={acc}')
+                print('step = %d, acc=%f' % (step, acc))
                 fid.write('step = %d, acc=%f\n' % (step, acc))
                 fid.flush()
         fid.close()
@@ -112,7 +112,7 @@ class MnistModelSaver(TFDaggerAdapter):
             sample_num += infer_res.shape[0]
             if step % 20 == 0:
                 acc = correct_num / sample_num
-                print(f'acc={acc}')
+                print('step = %d, acc=%f' % (step, acc))
                 fid.write('step = %d, acc=%f\n' % (step, acc))
                 fid.flush()
         fid.close()
@@ -166,7 +166,7 @@ class MnistModelSaver(TFDaggerAdapter):
             sample_num += infer_res.shape[0]
             if step % 20 == 0:
                 acc = correct_num / sample_num
-                print(f'acc={acc}')
+                print('step = %d, acc=%f' % (step, acc))
                 fid.write('step = %d, acc=%f\n' % (step, acc))
                 fid.flush()
 
@@ -242,7 +242,7 @@ class MnistModelSaver(TFDaggerAdapter):
             sample_num += infer_res.shape[0]
             if step % 20 == 0:
                 acc = correct_num / sample_num
-                print(f'acc={acc}')
+                print('step = %d, acc=%f' % (step, acc))
                 fid.write('step = %d, acc=%f\n' % (step, acc))
                 fid.flush()
 
@@ -660,7 +660,8 @@ def test_snn_clock_mnist_A_Nlayers():
 
 def test_snn_event_mnist_A():
     modelsaver = SnnEventMnistModelSaverA((28,28))
-    model_dir_path = 'data/snn_trained_model/snn_event_mnist_A_2022-06-23-11-01'
+    # model_dir_path = 'data/snn_trained_model/snn_event_mnist_A_2022-06-23-11-01' # wrong model, psp missed
+    model_dir_path = 'data/snn_trained_model/snn_event_mnist_A_2022-08-16-11-20_expand_tau_false'
     lt_model_dir_path = os.path.join(model_dir_path, 'ltsdk'+ltsdk_version)
     if not os.path.exists(lt_model_dir_path):
         os.makedirs(lt_model_dir_path)
